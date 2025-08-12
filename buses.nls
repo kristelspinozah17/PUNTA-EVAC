@@ -1,0 +1,126 @@
+  ;1 1 decide-target-stop
+  ;5 2 b-find-bus-stop
+  ;  3 move-the-bus
+  ;6 4 b-check-arrive-at-detination 
+  ;7 5 board-passengers
+  ;13 6 returning-to-home
+
+to go-buses
+  ask buses with [ b-state = 1 ] [ b-decide-target-stop ]
+  ask buses with [ b-state = 2 ] [ b-find-bus-stop ]
+  ask buses with [ b-state = 3 ] [ b-move-the-bus ]
+  ask buses with [ b-state = 4 ] [ b-check-arrive-at-destination ]
+  ask buses with [ b-state = 5 ] [ b-board-passenger ]
+  ask buses with [ b-state = 6 ] [ b-go-to-safe-zone ]
+  ask buses with [ b-state = 7 ] [ b-unboard-passenger ]
+end
+
+to b-decide-target-stop ; strategies need to be implemented here, now random selection
+  b-set-target
+  output-print (word ticks ":Bus " who " going to bus-stop " [who] of target-stop)
+  set b-state 2
+end
+
+;==== BUS STOP SELECTION STRATEGY ====
+
+to b-set-target
+  carefully
+  [ set target-stop first sorted-bus-stops
+    set sorted-bus-stops but-first sorted-bus-stops
+  ]
+  [ set bus-stop-nodes-with-pop bus-stop-nodes with [ pop-here > 0 ]
+    ifelse bus-strategy = "far to close"
+    [ b-decide-far-to-close ]
+    [ b-decide-close-to-far ]
+    if count bus-stop-nodes-with-pop = 0 [ output-print (word ticks ":Bus " who ": No passengers at bus-stops") stop ]
+    b-set-target
+  ]
+end
+
+to b-decide-far-to-close
+  set sorted-bus-stops sort-on [(- xcor)] bus-stop-nodes-with-pop
+end
+
+to b-decide-close-to-far
+  set sorted-bus-stops sort-on [xcor] bus-stop-nodes-with-pop
+end
+
+to b-decide-target-stop-randomnly
+  set target-stop one-of bus-stop-nodes
+end
+
+;=======================================
+
+to b-find-bus-stop
+  set b-path find-path [who] of current-stop [who] of target-stop
+  ifelse length b-path > 0 
+  [ set next-node first b-path set b-state 3 ]
+  [ set b-state 5 ]
+end
+
+to b-move-the-bus
+  face next-node
+  fd b-veloc
+  set b-state 4 
+end 
+
+to b-check-arrive-at-destination
+  carefully
+  [ if distance next-node < b-veloc
+    [ move-to next-node
+      set b-path but-first b-path
+      set next-node first b-path
+    ]
+    set b-state 3
+  ]
+  [
+    ifelse target-stop = b-home 
+    [ set b-state 7   ; if the bus arrived to safe zone
+      set current-stop next-node 
+      output-print (word ticks ":Bus " who " arrived to home " [who] of b-home )
+    ] 
+    [ set color orange ;arrived to bus-stop
+      set b-state 5 
+      set current-stop next-node 
+      ask current-stop [ set with-bus true ]
+      output-print (word ticks ":Bus " who " arrived to bus stop " [who] of current-stop )
+    ]
+  ]
+end
+
+to b-board-passenger
+  set passengers residents-here with [ my-bus = myself ] 
+  b-discount-wait-timer
+  if remaining-capacity = 0 or ( wait-timer < 0); and count passengers > 0) 
+  [ b-reset-wait-timer 
+    set b-state 6 
+    output-print (word ticks ":Bus " who " leaving with " count passengers " passengers")
+  ]
+end
+
+to b-go-to-safe-zone
+  set target-stop b-home
+  set b-path find-path [who] of current-stop [who] of target-stop
+  ask current-stop [ set with-bus false ] 
+  set b-state 3
+end
+
+to b-unboard-passenger
+  b-discount-wait-timer
+  if wait-timer = 0 
+  [ b-reset-wait-timer 
+    ask passengers [ set r-state 8 ]
+    set passengers []
+    set remaining-capacity bus-capacity
+    set b-state 1
+  ]
+end
+
+to b-discount-wait-timer
+  set wait-timer wait-timer - 1
+end
+
+to b-reset-wait-timer
+  set wait-timer temporal-scale ( bus-wait-time * 60 ) 
+end
+

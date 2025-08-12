@@ -1,0 +1,100 @@
+  
+  ;1	1 decide-to-evacuate
+  ;3	2 find-bus-stop
+  ;4	3 walk
+  ;5	4 check-arrive-at-destination
+  ;6	5 wait-for-bus
+  ;7	6 board-the-bus
+  ;8	7 move-with-bus
+  ;9  8 at-safe-zone => run by bus
+
+
+to go-residents
+  ask residents with [ r-state = 1 ] [ r-decide-to-evacuate ]
+  ask residents with [ r-state = 2 ] [ r-find-bus-stop ]　;=> path already calculated at setup
+  ask residents with [ r-state = 3 ] [ r-walk ]
+  ask residents with [ r-state = 4 ] [ r-check-arrive-at-destination ]
+  ask residents with [ r-state = 5 ] [ r-wait-for-bus ]
+  ask residents with [ r-state = 6 ] [ r-board-the-bus ]
+  ask residents with [ r-state = 7 ] [ r-move-with-bus ] ; bus will tell residents that they have arrived to a safe zone and all get out of model
+  ask residents with [ r-state = 8 ] [ r-at-safe-zone ]
+end
+
+;to go-residents-old
+;  ask residents [
+;  if r-state = 1 [ r-decide-to-evacuate ]
+;  if r-state = 2 [ r-find-bus-stop ]
+;  if r-state = 3 [ r-walk ]
+;  if r-state = 4 [ r-check-arrive-at-destination ]
+;  if r-state = 5 [ r-wait-for-bus ]
+;  if r-state = 6 [ r-board-the-bus ]
+;  if r-state = 7 [ r-move-with-bus ]
+;  if r-state = 8 [ r-at-safe-zone ]
+;]
+;end
+
+to r-decide-to-evacuate
+  if ticks = reaction-time [ set r-state 2 ] 
+end
+
+to r-find-bus-stop
+;  let my-node min-one-of nodes [distance myself]
+;  let bus-nodes nodes with [has-bus-stop = 1]
+;  let nearest-bus min-one-of bus-nodes [distance myself]
+;  set my-path find-path [who] of my-node [who] of nearest-bus
+  ifelse length my-path > 0 
+  [ set next-node first my-path set r-state 3 ]
+  [ set r-state 5 ]
+end
+
+to r-walk
+  face next-node
+  fd my-veloc
+  set r-state 4
+end
+
+to r-check-arrive-at-destination
+  carefully
+  [ if distance next-node < my-veloc
+    [ move-to next-node
+      set my-path but-first my-path
+      set next-node first my-path
+    ]
+    set r-state 3
+  ]
+  [
+    set color orange
+    set shape "circle"
+    ask next-node [ set pop-here pop-here + 1 ]
+    set r-state 5 
+  ]
+end
+
+to r-wait-for-bus
+  if [with-bus] of target-bus-stop
+  [ set r-state 6 ]
+end
+
+to r-board-the-bus
+  set my-bus one-of buses-here with [ b-state = 5 ]
+  if my-bus != nobody
+    [ ifelse [remaining-capacity] of my-bus > 0
+      [ ask my-bus [ set remaining-capacity remaining-capacity - 1 ] 
+        ask target-bus-stop [ set pop-here pop-here - 1 ]
+        set r-state 7 ] 
+      [ set my-bus nobody ] 
+  ]
+end
+
+to r-move-with-bus
+  set hidden? true
+end
+
+to r-at-safe-zone
+  set safe-a safe-a + 1
+  ifelse resident? 
+  [ set safe-r safe-r + 1 ]
+  [ set safe-t safe-t + 1 ]
+  die
+end
+

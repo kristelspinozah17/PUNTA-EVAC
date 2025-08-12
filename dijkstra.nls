@@ -1,0 +1,35 @@
+to-report find-path [ Start Goal ] ;Dijkstra in network
+  let r []
+  ask nodes [ set node-cost 999999 ]
+  ask node Start [ set node-cost 0 ]
+
+  let link-list sort links
+  foreach link-list [ x -> ask x [ set link-cost link-length ] ]
+  let current Start
+  let current-node-cost 0
+  let unvisited sort nodes
+  set unvisited remove node Start unvisited
+
+  while [ not empty? unvisited and current != Goal ]
+        [ foreach unvisited
+          [ x -> let neighbor x
+            if is-link? link current [who] of neighbor
+            [ let c 0
+              ask link current [who] of neighbor [set c link-cost]
+              ask neighbor [ if (c + current-node-cost) < node-cost
+                [ set node-cost (c + current-node-cost)
+                  set previous-node current ]
+                ] ] ]
+          set unvisited remove node current unvisited
+          set current [who] of min-one-of turtle-set unvisited [node-cost]
+          set current-node-cost [node-cost] of node current ]
+
+  set r lput Goal r
+  let k Goal
+  while [ k != Start ]
+        [ ask node k [ set r fput previous-node r ] set k item 0 r ]
+  set r remove item 0 r r
+  let node-list map [ w -> node w ] r
+  ;report r  ; NOTE: The final path does not include the START node in the list
+  report node-list
+end

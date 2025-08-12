@@ -1,0 +1,83 @@
+  
+  ;1	1 decide-to-evacuate
+  ;3	2 find-bus-stop
+  ;4	3 walk
+  ;5	4 check-arrive-at-destination
+  ;6	5 wait-for-bus
+  ;7	6 board-the-bus
+  ;8	7 move-with-bus
+  ;9  8 at-safe-zone => run by bus
+
+
+to go-tourists
+  ask tourists with [ r-state = 1 ] [ t-decide-to-evacuate ]
+  ask tourists with [ r-state = 2 ] [ t-find-bus-stop ]　;=> path already calculated at setup
+  ask tourists with [ r-state = 3 ] [ t-walk ]
+  ask tourists with [ r-state = 4 ] [ t-check-arrive-at-destination ]
+  ask tourists with [ r-state = 5 ] [ t-wait-for-bus ]
+  ask tourists with [ r-state = 6 ] [ t-board-the-bus ]
+  ask tourists with [ r-state = 7 ] [ t-move-with-bus ] ; bus will tell tourists that they have arrived to a safe zone and all get out of model
+  ask tourists with [ r-state = 8 ] [ t-at-safe-zone ]
+end
+
+to t-decide-to-evacuate
+  if ticks = reaction-time [ set r-state 2 ] 
+end
+
+to t-find-bus-stop
+;  let my-node min-one-of nodes [distance myself]
+;  let bus-nodes nodes with [has-bus-stop = 1]
+;  let nearest-bus min-one-of bus-nodes [distance myself]
+;  set my-path find-path [who] of my-node [who] of nearest-bus
+  ifelse length my-path > 0 
+  [ set next-node first my-path set r-state 3 ]
+  [ set r-state 5 ]
+end
+
+to t-walk
+  face next-node
+  fd my-veloc
+  set r-state 4
+end
+
+to t-check-arrive-at-destination
+  carefully
+  [ if distance next-node < my-veloc
+    [ move-to next-node
+      set my-path but-first my-path
+      set next-node first my-path
+    ]
+    set r-state 3
+  ]
+  [
+    set color orange
+    set shape "circle"
+    ask next-node [ set pop-int pop-int + 1 ]
+    set r-state 5 
+  ]
+end
+
+to t-wait-for-bus
+  if [with-bus] of target-bus-stop
+  [ set r-state 6 ]
+end
+
+to t-board-the-bus
+  set my-bus one-of buses-here with [ b-state = 5 ]
+  if my-bus != nobody
+    [ ifelse [remaining-capacity] of my-bus > 0
+      [ ask my-bus [ set remaining-capacity remaining-capacity - 1 ] 
+        set r-state 7 ] 
+      [ set my-bus nobody ] 
+  ]
+end
+
+to t-move-with-bus
+  set hidden? true
+end
+
+to t-at-safe-zone
+  set safe safe + 1
+  die
+end
+

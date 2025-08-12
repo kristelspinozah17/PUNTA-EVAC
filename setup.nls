@@ -1,0 +1,321 @@
+globals [ 
+  fps
+  studyarea-dataset
+  node-dataset
+  road-dataset
+  world-scale
+  safe-a
+  safe-r
+  safe-t
+  total-pop-at-risk
+  bus-stop-nodes
+  bus-stop-nodes-with-pop
+  sorted-bus-stops
+  tourist-nodes
+  tour-per-node
+]
+
+
+;=======================================================================================================
+;SETUP
+;=======================================================================================================
+
+to setup-world
+  resize-world -442 442 -67 67 ;<=== no need for float
+  ; Extent of studyarea.geojson in UTM(EPSG:102223)
+  ; 406496.4356840046239085,1102479.5148771591484547 : 415348.3283225232735276,1103837.4290591445751488
+  ; ~8,852m X 1,358 m
+  ; 885 x 135 patches means 1 patch <> 10m
+  set-patch-size patch-size-n
+  set world-scale 10 
+end
+
+to setup-globals
+  set studyarea-dataset gis:load-dataset "DatosGIS/studyarea.geojson"
+  set node-dataset gis:load-dataset "DatosGIS/nodes.geojson"
+  set road-dataset gis:load-dataset "DatosGIS/edges.geojson"
+  gis:set-world-envelope gis:envelope-of studyarea-dataset
+  set fps 1 ; 1 tick is one second now
+end
+
+to setup-nodes
+  foreach gis:feature-list-of node-dataset
+  [ x -> create-nodes 1 [
+      set node-id gis:property-value x "ID"
+      set to-node1 gis:property-value x "Node1"
+      set to-node2 gis:property-value x "Node2"
+      set to-node3 gis:property-value x "Node3"
+      set to-node4 gis:property-value x "Node4"
+      set pop-init gis:property-value x "POP_INT"
+      set tour-init gis:property-value x "TOUR_INT"
+      set has-bus-stop gis:property-value x "busStop"
+      set coord gis:location-of first first gis:vertex-lists-of x
+      set with-bus false
+      set pop-here pop-init
+      set color blue
+      set shape "dot"
+      setxy item 0 coord item 1 coord
+      set size scale 50
+      set label ""
+    ]
+  ]
+  output-print (word "Nodes: " count nodes)
+  set bus-stop-nodes nodes with [ has-bus-stop = 1]
+  set tourist-nodes nodes with [ tour-init != -1 ]
+  calculate-tourists-per-node
+end
+
+
+to setup-links
+  foreach sort-on [node-id] nodes [ current-node -> ask current-node [
+    foreach (list to-node1 to-node2 to-node3 to-node4) [ connected-node-id ->
+      if connected-node-id != -1 and connected-node-id > node-id [
+        let target-node one-of nodes with [node-id = connected-node-id]
+        if target-node != nobody [
+          create-link-with target-node
+        ]
+      ]
+    ]
+    ]
+  ]
+  ask links [ set color black ]
+  output-print (word "Links: " count links)
+end
+
+to setup-bus-stops
+;  set bus-stops nodes with [ has-bus-stop = 1 ]
+  ask bus-stop-nodes [ 
+          set shape "target"
+          set size scale 60
+          set color red
+    set label "" ]
+  let total count bus-stop-nodes
+  output-print (word "Bus stops: " total)
+end
+
+to setup-residents
+  ask nodes [
+    repeat pop-init [
+      hatch-residents 1 [
+        setxy [xcor] of myself [ycor] of myself
+        set color green
+        set shape "circle"
+        set size scale 50
+        set r-state 1
+        set my-veloc scale 1.34
+        set reaction-time setup-reaction-time * 60
+        set target-bus-stop nobody
+        set resident? true
+      ]
+    ]
+  ]
+  output-print (word "Residents:" count residents)
+end
+
+to calculate-tourists-per-node
+  set tour-per-node ceiling (no-of-tourists / sum [tour-init] of tourist-nodes)
+end
+
+to setup-tourists
+  ask tourist-nodes [
+    repeat tour-init * tour-per-node [
+      hatch-tourists 1 [
+        setxy [xcor] of myself [ycor] of myself
+        set color magenta
+        set shape "circle"
+        set size scale 50
+        set r-state 1
+        set my-veloc scale 1.34
+        set reaction-time setup-reaction-time * 60
+        set target-bus-stop nobody
+      ]
+    ]
+  ]
+  if count tourists > no-of-tourists
+  [ ask n-of (count tourists - no-of-tourists) tourists [ die ] ]
+  output-print (word "Tourists:" count tourists)
+end
+
+to-report setup-reaction-time
+  ifelse td-behavior = "Deterministic"
+  [ report floor ( random-td-rayleigh random-float 1 departure-mean )
+  ]
+  [ let s-shapes (range departure-mean tsunami-arrival-time 1)
+    report floor ( random-td-rayleigh random-float 1 one-of s-shapes )
+  ]
+end
+
+to-report get-my-node
+  report min-one-of nodes [distance myself]
+end
+
+to-report get-nearest-bus-stop
+  report min-one-of bus-stop-nodes [distance myself]
+end
+
+to assign-paths-to-bus-stops
+  ask residents [
+    let my-node get-my-node
+    set target-bus-stop get-nearest-bus-stop
+    set my-path find-path [who] of my-node [who] of target-bus-stop
+    if length my-path > 0 
+    [ set next-node first my-path ]
+  ]
+end
+
+to setup-buses
+  create-buses num-buses [
+    set shape "bus"
+    set color yellow
+    set size scale 150
+    set remaining-capacity bus-capacity
+    set wait-timer temporal-scale ( bus-wait-time * 60 ) 
+    set b-state 1
+    set b-veloc scale 14.0
+    set b-path []
+    set trip-count 0
+    set b-home first sort-on [(- xcor)] nodes
+    setxy [xcor] of b-home [ycor] of b-home
+    set current-stop b-home
+    set passengers []
+  ]
+  output-print (word "Buses:" count buses)
+  ifelse bus-strategy = "far-to-close"
+  [ set sorted-bus-stops sort-on [(- xcor)] bus-stop-nodes ]
+  [ set sorted-bus-stops sort-on [xcor] bus-stop-nodes ]
+end
+
+;=======================================================================================================
+;BUTTONS
+;=======================================================================================================
+
+to update-background
+  clear-drawing
+  let bck first Background
+  let choice ""
+  (ifelse
+    bck = 0 [set choice "DatosGIS/bck_googlesat.png"]
+    bck = 1 [set choice "DatosGIS/bck_esritopoworld.png"]
+    bck = 2 [set choice "DatosGIS/bck_esristreet.png"]
+    bck = 3 [set choice "DatosGIS/bck_esrilightgray.png"])
+  import-drawing choice
+end
+
+to turn-on-off-network
+  ifelse one-of [hidden?] of links
+  [ ask links [set hidden? false] ]
+  [ ask links [set hidden? true] ]
+
+  ifelse one-of [hidden?] of nodes
+  [ ask nodes [set hidden? false] ]
+  [ ask nodes [set hidden? true] ]
+end
+
+to turn-on-off-node-labels
+  ifelse [ label ] of one-of nodes = ""
+  [ ask nodes [ set label who set label-color black ] ]
+  [ ask nodes [ set label "" ] ]
+end
+
+to turn-on-off-residents-labels
+  ifelse [ label ] of one-of residents = ""
+  [ ask residents [ set label who set label-color black ] ]
+  [ ask residents [ set label "" ] ]
+end
+
+to show-random-path
+  ;get the path
+  let path find-path start-node-who end-node-who
+  output-print (word "Path from node " start-node-who " to node " end-node-who)
+  output-print path
+  let path2 but-first path
+  set path2 lput first path path2
+  (foreach path path2
+    [ [x y] -> ask x
+      [ set color red
+        set size 10
+        set shape "arrow"
+        face y
+        set label who
+        set label-color black
+        set hidden? false
+      ]
+  ])
+  ask node end-node-who [ set shape "dot" set hidden? false ]
+  ask node start-node-who [ set shape "dot" set color red set size 10 set hidden? false ]
+end
+
+to reset-random-path
+  ask nodes [ set color black
+    set size 5
+    set shape "dot"
+    set label ""
+    turn-on-off-network
+  ]
+end
+
+to show-resident-path
+  ask resident resident-who [ 
+    let path my-path
+    let path2 but-first path
+    set path2 lput first path path2
+;    set path2 lput first [who] of nodes-here my-path
+    (foreach path path2
+      [ [x y] -> ask x
+        [ set color red
+          set size 10
+          set shape "arrow"
+          face y
+          set label who
+          set label-color black
+          set hidden? false
+        ]
+    ])
+    ask last my-path [ set shape "dot" ]
+    ask node first [who] of nodes-here [ set color red set size 10 set shape "dot" ]
+    output-print (word "Path from node " first [who] of nodes-here " to " last my-path)
+    output-print my-path 
+  ]
+end
+
+to export-agent-paths
+  let output-file "agent-paths.csv"
+  carefully [ file-delete output-file output-print "Erasing previous file" ] [ output-print "Creating a new file" ] 
+  file-open output-file
+  file-type word "random-seed," seed
+  file-print ""
+  ask residents [
+    file-type word who ","  ; write agent ID
+    file-type map [ w -> [who] of w ] my-path  ; newline
+    file-type ","
+    file-print [who] of target-bus-stop
+  ]
+  file-close
+end
+
+to import-agent-paths
+  let data " "
+  carefully [ set data csv:from-file "agent-paths.csv" output-print "Importing from file..."] [ output-print error-message stop ]
+  set seed item 1 first data
+  set data but-first data
+  foreach data [ x -> ask resident item 0 x 
+    [ set my-path map [ w -> node w ] read-from-string item 1 x 
+      set target-bus-stop node item 2 x
+    ] 
+  ]
+end
+
+to profile
+  setup
+  import-agent-paths
+  let output-file "profiler_data.csv"
+  carefully [ file-delete output-file output-print "Erasing previous file" ] [ output-print "Creating a new file" ] 
+  profiler:start
+  repeat (tsunami-arrival-time * 60) [go]
+  output-print (word "Time taken: " timer " seconds")
+  profiler:stop
+  csv:to-file "profiler_data.csv" profiler:data
+  profiler:reset
+end
+
+
