@@ -7,6 +7,6 @@ PUNTA-EVAC simulates the behaviors of both pedestrians and buses during an evacu
 3. Ensure the following files are in the same directory as `Model.nlogo`:
    - `agent-paths.xlsx` → Pre-calculated paths for agents.
    - `.nls` files (NetLogo extensions for agents, buses, tourists, residents, etc.).
-   - `DatosGIS` folder → contains the GIS data (shapefiles).
+   - `DatosGIS` folder → contains the GIS data (geojson).
 4. In NetLogo, click `setup` to load all datasets and initialize the simulation.
 5. Click `go` to start the simulation.
